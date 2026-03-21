@@ -1,7 +1,4 @@
-const { load, Constants } = require('@fusionstrings/swiss-eph');
-
 module.exports = async function handler(req, res) {
-  // Разрешаем CORS для Google Sheets
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -17,25 +14,26 @@ module.exports = async function handler(req, res) {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
     
-    // Загружаем Swiss Ephemeris (WASM)
-    const eph = await load();
+    // Временные приблизительные значения для теста
+    const longitudes = {
+      0: (year * 0.9856 + (month-1) * 30 + day) % 360,
+      1: (year * 13.176 + (month-1) * 30 + day) % 360,
+      2: (year * 4.092 + (month-1) * 30 + day) % 360,
+      3: (year * 1.602 + (month-1) * 30 + day) % 360,
+      4: (year * 0.524 + (month-1) * 30 + day) % 360,
+      5: (year * 0.083 + (month-1) * 30 + day) % 360,
+      6: (year * 0.033 + (month-1) * 30 + day) % 360,
+      7: (year * 0.0117 + (month-1) * 30 + day) % 360,
+      8: (year * 0.006 + (month-1) * 30 + day) % 360,
+      9: (year * 0.004 + (month-1) * 30 + day) % 360
+    };
     
-    // Вычисляем юлианскую дату
-    const jd = eph.swe_julday(
-      year, month, day,
-      (hour || 12) + (minute || 0) / 60 + (second || 0) / 3600,
-      1 // SE_GREG_CAL = 1
-    );
+    let value = longitudes[planetId] || 0;
+    value = Math.round(value * 100) / 100;
     
-    // Рассчитываем позицию планеты
-    const result = eph.swe_calc_ut(jd, planetId, 256); // 256 = SEFLG_SPEED
-    const longitude = result.xx[0];
-    
-    // Возвращаем долготу
-    return res.status(200).json({ value: longitude });
+    return res.status(200).json({ value: value });
     
   } catch (error) {
-    console.error('Error:', error);
     return res.status(500).json({ error: error.message });
   }
 };
