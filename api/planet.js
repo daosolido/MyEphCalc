@@ -1,6 +1,6 @@
-import { load, Constants } from '@fusionstrings/swiss-eph';
+const { load, Constants } = require('@fusionstrings/swiss-eph');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Разрешаем CORS для Google Sheets
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -24,17 +24,18 @@ export default async function handler(req, res) {
     const jd = eph.swe_julday(
       year, month, day,
       (hour || 12) + (minute || 0) / 60 + (second || 0) / 3600,
-      Constants.SE_GREG_CAL
+      1 // SE_GREG_CAL = 1
     );
     
     // Рассчитываем позицию планеты
-    const { xx } = eph.swe_calc_ut(jd, planetId, Constants.SEFLG_SPEED);
+    const result = eph.swe_calc_ut(jd, planetId, 256); // 256 = SEFLG_SPEED
+    const longitude = result.xx[0];
     
-    // Возвращаем долготу (xx[0] — это долгота в градусах)
-    return res.status(200).json({ value: xx[0] });
+    // Возвращаем долготу
+    return res.status(200).json({ value: longitude });
     
   } catch (error) {
     console.error('Error:', error);
     return res.status(500).json({ error: error.message });
   }
-}
+};
