@@ -1,10 +1,6 @@
 {
-  "name": "swiss-ephemeris-api",
+  "name": "swiss-api",
   "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "node index.js"
-  },
   "dependencies": {
     "@fusionstrings/swiss-eph": "^0.1.14"
   }
