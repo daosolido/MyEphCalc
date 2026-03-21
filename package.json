@@ -1,7 +1,5 @@
 {
   "name": "swiss-api",
   "version": "1.0.0",
-  "dependencies": {
-    "@fusionstrings/swiss-eph": "^0.1.14"
-  }
+  "dependencies": {}
 }
