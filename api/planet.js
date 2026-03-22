@@ -1,4 +1,5 @@
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
+  // CORS для Google Sheets
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -14,26 +15,45 @@ module.exports = async function handler(req, res) {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
     
-    // Временные приблизительные значения для теста
-    const longitudes = {
-      0: (year * 0.9856 + (month-1) * 30 + day) % 360,
-      1: (year * 13.176 + (month-1) * 30 + day) % 360,
-      2: (year * 4.092 + (month-1) * 30 + day) % 360,
-      3: (year * 1.602 + (month-1) * 30 + day) % 360,
-      4: (year * 0.524 + (month-1) * 30 + day) % 360,
-      5: (year * 0.083 + (month-1) * 30 + day) % 360,
-      6: (year * 0.033 + (month-1) * 30 + day) % 360,
-      7: (year * 0.0117 + (month-1) * 30 + day) % 360,
-      8: (year * 0.006 + (month-1) * 30 + day) % 360,
-      9: (year * 0.004 + (month-1) * 30 + day) % 360
+    // Простые приблизительные расчеты
+    const dayOfYear = (Date.UTC(year, month-1, day) - Date.UTC(year, 0, 0)) / 86400000;
+    
+    const speeds = {
+      0: 0.9856,   // Солнце
+      1: 13.176,   // Луна
+      2: 4.092,    // Меркурий
+      3: 1.602,    // Венера
+      4: 0.524,    // Марс
+      5: 0.083,    // Юпитер
+      6: 0.033,    // Сатурн
+      7: 0.0117,   // Уран
+      8: 0.006,    // Нептун
+      9: 0.004     // Плутон
     };
     
-    let value = longitudes[planetId] || 0;
+    const startPositions = {
+      0: 280,  // Солнце на 1 января
+      1: 100,  // Луна
+      2: 290,  // Меркурий
+      3: 280,  // Венера
+      4: 290,  // Марс
+      5: 280,  // Юпитер
+      6: 285,  // Сатурн
+      7: 290,  // Уран
+      8: 295,  // Нептун
+      9: 300   // Плутон
+    };
+    
+    let value = (startPositions[planetId] + speeds[planetId] * dayOfYear) % 360;
     value = Math.round(value * 100) / 100;
     
-    return res.status(200).json({ value: value });
+    return res.status(200).json({ 
+      value: value,
+      planet: planetId,
+      date: `${year}-${month}-${day}`
+    });
     
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
-};
+}
