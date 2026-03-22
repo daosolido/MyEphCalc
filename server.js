@@ -31,11 +31,12 @@ function getJulianDay(year, month, day, hourDecimal) {
 // Айанамша Lahiri
 function getAyanamsha(jd) {
   const t = (jd - 2451545.0) / 36525.0;
-  const ayan = 23.436346 - 0.005 - (t * 0.000153) - ((5025.64 * t + 1.11 * t * t) / 3600);
+  const precession = (5025.64 * t + 1.11 * t * t) / 3600;
+  const ayan = 23.436346 - 0.005 - (t * 0.000153) - precession;
   return ayan;
 }
 
-// Раху (средний лунный узел)
+// Раху (средний лунный узел) - тропический
 function getRahu(jd) {
   const T = (jd - 2451545.0) / 36525.0;
   let rahu = 125.044522 - 1934.136261 * T + 0.0020708 * T * T + T * T * T / 450000;
@@ -59,13 +60,9 @@ function getDayOfYear(year, month, day) {
 app.post('/api/planet', (req, res) => {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
-    
-    console.log('=== NEW REQUEST ===');
-    console.log('Received:', { year, month, day, hour, minute, second, planetId });
 
     if (!year || !month || !day || planetId === undefined) {
-      console.log('Missing parameters');
-      return res.status(400).json({ error: 'Missing parameters: year, month, day, planetId required' });
+      return res.status(400).json({ error: 'Missing parameters' });
     }
 
     const hourDecimal = (hour || 12) + (minute || 0) / 60 + (second || 0) / 3600;
@@ -74,36 +71,37 @@ app.post('/api/planet', (req, res) => {
     const jd = getJulianDay(year, month, day, hourDecimal);
     const ayanamsha = getAyanamsha(jd);
     
-    console.log('Calculated:', { hourDecimal, dayOfYear, daysSince2000, jd, ayanamsha });
+    console.log('=== REQUEST ===');
+    console.log('planetId:', planetId);
+    console.log('ayanamsha:', ayanamsha);
+    console.log('jd:', jd);
 
     // Раху (planetId = 10)
     if (planetId === 10) {
-      console.log('Processing Rahu (planetId=10)');
       const rahuTropical = getRahu(jd);
-      console.log('Rahu tropical:', rahuTropical);
+      console.log('rahuTropical:', rahuTropical);
       let rahuSidereal = rahuTropical - ayanamsha;
       rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
       rahuSidereal = Math.round(rahuSidereal * 1000) / 1000;
-      console.log('Rahu sidereal result:', rahuSidereal);
+      console.log('rahuSidereal result:', rahuSidereal);
       return res.json({ value: rahuSidereal, planet: 'Rahu' });
     }
     
     // Кету (planetId = 11)
     if (planetId === 11) {
-      console.log('Processing Ketu (planetId=11)');
       const rahuTropical = getRahu(jd);
+      console.log('rahuTropical:', rahuTropical);
       let rahuSidereal = rahuTropical - ayanamsha;
       rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
       let ketuSidereal = rahuSidereal + 180;
       ketuSidereal = ((ketuSidereal % 360) + 360) % 360;
       ketuSidereal = Math.round(ketuSidereal * 1000) / 1000;
-      console.log('Ketu result:', ketuSidereal);
+      console.log('ketuSidereal result:', ketuSidereal);
       return res.json({ value: ketuSidereal, planet: 'Ketu' });
     }
     
     // Обычные планеты (0-9)
     if (planetId >= 0 && planetId <= 9) {
-      console.log('Processing regular planet:', planetId);
       const L0 = [280.46646, 218.316, 252.250, 181.979, 355.433, 34.351, 50.077, 313.232, 304.348, 238.928];
       const n = [0.9856474, 13.176358, 4.092335, 1.602130, 0.524038, 0.083090, 0.033457, 0.011723, 0.005957, 0.003955];
 
@@ -113,12 +111,10 @@ app.post('/api/planet', (req, res) => {
       siderealLong = ((siderealLong % 360) + 360) % 360;
       siderealLong = Math.round(siderealLong * 1000) / 1000;
       
-      console.log('Result:', siderealLong);
       return res.json({ value: siderealLong, planet: planetId });
     }
     
-    console.log('Invalid planetId:', planetId);
-    return res.status(400).json({ error: 'Invalid planetId. Use 0-9, 10 (Rahu), or 11 (Ketu)' });
+    return res.status(400).json({ error: 'Invalid planetId' });
     
   } catch (error) {
     console.error('ERROR:', error);
