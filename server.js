@@ -31,7 +31,6 @@ function getJulianDay(year, month, day, hourDecimal) {
 // Айанамша Lahiri
 function getAyanamsha(jd) {
   const t = (jd - 2451545.0) / 36525.0;
-  // Lahiri ayanamsha formula (стандартная)
   const ayan = 23.436346 - 0.005 - (t * 0.000153) - ((5025.64 * t + 1.11 * t * t) / 3600);
   return ayan;
 }
@@ -39,71 +38,90 @@ function getAyanamsha(jd) {
 // Раху (средний лунный узел)
 function getRahu(jd) {
   const T = (jd - 2451545.0) / 36525.0;
-  // Формула из Swiss Ephemeris для среднего узла
   let rahu = 125.044522 - 1934.136261 * T + 0.0020708 * T * T + T * T * T / 450000;
   rahu = ((rahu % 360) + 360) % 360;
   return rahu;
 }
 
+// Расчёт дня года
+function getDayOfYear(year, month, day) {
+  const monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  let dayOfYear = 0;
+  for (let i = 0; i < month - 1; i++) dayOfYear += monthDays[i];
+  dayOfYear += day;
+  
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+  if (isLeap && month > 2) dayOfYear += 1;
+  
+  return dayOfYear;
+}
+
 app.post('/api/planet', (req, res) => {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
-
-    console.log('Request:', { year, month, day, hour, minute, second, planetId });
+    
+    console.log('=== NEW REQUEST ===');
+    console.log('Received:', { year, month, day, hour, minute, second, planetId });
 
     if (!year || !month || !day || planetId === undefined) {
-      return res.status(400).json({ error: 'Missing parameters' });
+      console.log('Missing parameters');
+      return res.status(400).json({ error: 'Missing parameters: year, month, day, planetId required' });
     }
 
-    // Расчёт дня года
-    const monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let dayOfYear = 0;
-    for (let i = 0; i < month - 1; i++) dayOfYear += monthDays[i];
-    dayOfYear += day;
-
-    const isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
-    if (isLeap && month > 2) dayOfYear += 1;
-
     const hourDecimal = (hour || 12) + (minute || 0) / 60 + (second || 0) / 3600;
+    const dayOfYear = getDayOfYear(year, month, day);
     const daysSince2000 = (year - 2000) * 365.25 + dayOfYear + hourDecimal / 24;
     const jd = getJulianDay(year, month, day, hourDecimal);
     const ayanamsha = getAyanamsha(jd);
+    
+    console.log('Calculated:', { hourDecimal, dayOfYear, daysSince2000, jd, ayanamsha });
 
-    // Специальная обработка для Раху (10) и Кету (11)
+    // Раху (planetId = 10)
     if (planetId === 10) {
+      console.log('Processing Rahu (planetId=10)');
       const rahuTropical = getRahu(jd);
+      console.log('Rahu tropical:', rahuTropical);
       let rahuSidereal = rahuTropical - ayanamsha;
       rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
       rahuSidereal = Math.round(rahuSidereal * 1000) / 1000;
-      console.log('Rahu calculated:', rahuSidereal);
+      console.log('Rahu sidereal result:', rahuSidereal);
       return res.json({ value: rahuSidereal, planet: 'Rahu' });
     }
-
+    
+    // Кету (planetId = 11)
     if (planetId === 11) {
+      console.log('Processing Ketu (planetId=11)');
       const rahuTropical = getRahu(jd);
       let rahuSidereal = rahuTropical - ayanamsha;
       rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
       let ketuSidereal = rahuSidereal + 180;
       ketuSidereal = ((ketuSidereal % 360) + 360) % 360;
       ketuSidereal = Math.round(ketuSidereal * 1000) / 1000;
-      console.log('Ketu calculated:', ketuSidereal);
+      console.log('Ketu result:', ketuSidereal);
       return res.json({ value: ketuSidereal, planet: 'Ketu' });
     }
-
+    
     // Обычные планеты (0-9)
-    const L0 = [280.46646, 218.316, 252.250, 181.979, 355.433, 34.351, 50.077, 313.232, 304.348, 238.928];
-    const n = [0.9856474, 13.176358, 4.092335, 1.602130, 0.524038, 0.083090, 0.033457, 0.011723, 0.005957, 0.003955];
+    if (planetId >= 0 && planetId <= 9) {
+      console.log('Processing regular planet:', planetId);
+      const L0 = [280.46646, 218.316, 252.250, 181.979, 355.433, 34.351, 50.077, 313.232, 304.348, 238.928];
+      const n = [0.9856474, 13.176358, 4.092335, 1.602130, 0.524038, 0.083090, 0.033457, 0.011723, 0.005957, 0.003955];
 
-    let tropicalLong = L0[planetId] + n[planetId] * daysSince2000;
-    tropicalLong = ((tropicalLong % 360) + 360) % 360;
-    let siderealLong = tropicalLong - ayanamsha;
-    siderealLong = ((siderealLong % 360) + 360) % 360;
-    siderealLong = Math.round(siderealLong * 1000) / 1000;
-
-    return res.json({ value: siderealLong, planet: planetId });
-
+      let tropicalLong = L0[planetId] + n[planetId] * daysSince2000;
+      tropicalLong = ((tropicalLong % 360) + 360) % 360;
+      let siderealLong = tropicalLong - ayanamsha;
+      siderealLong = ((siderealLong % 360) + 360) % 360;
+      siderealLong = Math.round(siderealLong * 1000) / 1000;
+      
+      console.log('Result:', siderealLong);
+      return res.json({ value: siderealLong, planet: planetId });
+    }
+    
+    console.log('Invalid planetId:', planetId);
+    return res.status(400).json({ error: 'Invalid planetId. Use 0-9, 10 (Rahu), or 11 (Ketu)' });
+    
   } catch (error) {
-    console.error('Error:', error);
+    console.error('ERROR:', error);
     return res.status(500).json({ error: error.message });
   }
 });
