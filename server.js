@@ -1,6 +1,10 @@
 const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
+const swisseph = require('swisseph');
+
+// Инициализация Swiss Ephemeris
+swisseph.swe_set_ephe_path('./ephe'); // путь к эфемеридным файлам
 
 app.use(express.json());
 
@@ -9,17 +13,15 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
   next();
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Vedic Astrology API' });
+  res.json({ status: 'ok', message: 'Swiss Ephemeris API' });
 });
 
-// Функция юлианской даты
+// Преобразование даты в юлианскую
 function getJulianDay(year, month, day, hourDecimal) {
   const a = Math.floor((14 - month) / 12);
   const y = year + 4800 - a;
@@ -28,73 +30,48 @@ function getJulianDay(year, month, day, hourDecimal) {
   return jd + hourDecimal / 24;
 }
 
-// Айанамша Lahiri
+// Айанамша Lahiri через Swiss Ephemeris
 function getAyanamsha(jd) {
-  const t = (jd - 2451545.0) / 36525.0;
-  const precession = (5025.64 * t + 1.11 * t * t) / 3600;
-  const ayan = 23.436346 - 0.005 - (t * 0.000153) - precession;
-  return ayan;
+  return new Promise((resolve, reject) => {
+    swisseph.swe_get_ayanamsa_ut(jd, (err, ayan) => {
+      if (err) reject(err);
+      else resolve(ayan);
+    });
+  });
 }
 
-// Раху (средний лунный узел) - тропический
-function getRahu(jd) {
-  const T = (jd - 2451545.0) / 36525.0;
-  let rahu = 125.044522 - 1934.136261 * T + 0.0020708 * T * T + T * T * T / 450000;
-  rahu = ((rahu % 360) + 360) % 360;
-  return rahu;
+// Расчёт планеты через Swiss Ephemeris
+function getPlanet(jd, planetId, ayanamsha) {
+  return new Promise((resolve, reject) => {
+    const iflag = swisseph.SEFLG_SIDEREAL | swisseph.SEFLG_SPEED;
+    swisseph.swe_calc_ut(jd, planetId, iflag, (err, body) => {
+      if (err) reject(err);
+      else {
+        let longitude = body.longitude - ayanamsha;
+        longitude = ((longitude % 360) + 360) % 360;
+        resolve(Math.round(longitude * 1000) / 1000);
+      }
+    });
+  });
 }
 
-// Расчёт дня года
-function getDayOfYear(year, month, day) {
-  const monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  let dayOfYear = 0;
-  for (let i = 0; i < month - 1; i++) dayOfYear += monthDays[i];
-  dayOfYear += day;
-  
-  const isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
-  if (isLeap && month > 2) dayOfYear += 1;
-  
-  return dayOfYear;
+// Раху и Кету через Swiss Ephemeris
+function getNodes(jd, ayanamsha) {
+  return new Promise((resolve, reject) => {
+    swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, swisseph.SEFLG_SIDEREAL, (err, nodes) => {
+      if (err) reject(err);
+      else {
+        let rahu = nodes.nasc_long - ayanamsha;
+        let ketu = nodes.ndsc_long - ayanamsha;
+        rahu = ((rahu % 360) + 360) % 360;
+        ketu = ((ketu % 360) + 360) % 360;
+        resolve({ rahu: Math.round(rahu * 1000) / 1000, ketu: Math.round(ketu * 1000) / 1000 });
+      }
+    });
+  });
 }
 
-// ============================================
-// НОВЫЙ ЭНДПОИНТ ДЛЯ РАХУ И КЕТУ
-// ============================================
-app.post('/api/node', (req, res) => {
-  try {
-    const { year, month, day, hour, minute, second, type } = req.body;
-    
-    console.log('Node endpoint - type:', type);
-    
-    const hourDecimal = (hour || 12) + (minute || 0) / 60 + (second || 0) / 3600;
-    const jd = getJulianDay(year, month, day, hourDecimal);
-    const ayanamsha = getAyanamsha(jd);
-    const rahuTropical = getRahu(jd);
-    
-    let rahuSidereal = rahuTropical - ayanamsha;
-    rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
-    rahuSidereal = Math.round(rahuSidereal * 1000) / 1000;
-    
-    if (type === 'rahu') {
-      return res.json({ value: rahuSidereal });
-    } else if (type === 'ketu') {
-      let ketu = rahuSidereal + 180;
-      ketu = ((ketu % 360) + 360) % 360;
-      ketu = Math.round(ketu * 1000) / 1000;
-      return res.json({ value: ketu });
-    }
-    
-    return res.json({ error: 'Invalid type. Use "rahu" or "ketu"' });
-  } catch (e) {
-    console.error('Node endpoint error:', e);
-    return res.status(500).json({ error: e.message });
-  }
-});
-
-// ============================================
-// ОСНОВНОЙ ЭНДПОИНТ ДЛЯ ПЛАНЕТ
-// ============================================
-app.post('/api/planet', (req, res) => {
+app.post('/api/planet', async (req, res) => {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
 
@@ -103,53 +80,30 @@ app.post('/api/planet', (req, res) => {
     }
 
     const hourDecimal = (hour || 12) + (minute || 0) / 60 + (second || 0) / 3600;
-    const dayOfYear = getDayOfYear(year, month, day);
-    const daysSince2000 = (year - 2000) * 365.25 + dayOfYear + hourDecimal / 24;
     const jd = getJulianDay(year, month, day, hourDecimal);
-    const ayanamsha = getAyanamsha(jd);
-    
-    // Раху (planetId = 10)
-    if (planetId === 10) {
-      const rahuTropical = getRahu(jd);
-      let rahuSidereal = rahuTropical - ayanamsha;
-      rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
-      rahuSidereal = Math.round(rahuSidereal * 1000) / 1000;
-      return res.json({ value: rahuSidereal, planet: 'Rahu' });
+    const ayanamsha = await getAyanamsha(jd);
+
+    // Раху и Кету (10 и 11)
+    if (planetId === 10 || planetId === 11) {
+      const nodes = await getNodes(jd, ayanamsha);
+      if (planetId === 10) return res.json({ value: nodes.rahu });
+      if (planetId === 11) return res.json({ value: nodes.ketu });
     }
-    
-    // Кету (planetId = 11)
-    if (planetId === 11) {
-      const rahuTropical = getRahu(jd);
-      let rahuSidereal = rahuTropical - ayanamsha;
-      rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
-      let ketuSidereal = rahuSidereal + 180;
-      ketuSidereal = ((ketuSidereal % 360) + 360) % 360;
-      ketuSidereal = Math.round(ketuSidereal * 1000) / 1000;
-      return res.json({ value: ketuSidereal, planet: 'Ketu' });
-    }
-    
+
     // Обычные планеты (0-9)
     if (planetId >= 0 && planetId <= 9) {
-      const L0 = [280.46646, 218.316, 252.250, 181.979, 355.433, 34.351, 50.077, 313.232, 304.348, 238.928];
-      const n = [0.9856474, 13.176358, 4.092335, 1.602130, 0.524038, 0.083090, 0.033457, 0.011723, 0.005957, 0.003955];
-
-      let tropicalLong = L0[planetId] + n[planetId] * daysSince2000;
-      tropicalLong = ((tropicalLong % 360) + 360) % 360;
-      let siderealLong = tropicalLong - ayanamsha;
-      siderealLong = ((siderealLong % 360) + 360) % 360;
-      siderealLong = Math.round(siderealLong * 1000) / 1000;
-      
-      return res.json({ value: siderealLong, planet: planetId });
+      const longitude = await getPlanet(jd, planetId, ayanamsha);
+      return res.json({ value: longitude });
     }
-    
+
     return res.status(400).json({ error: 'Invalid planetId' });
-    
+
   } catch (error) {
-    console.error('ERROR:', error);
-    return res.status(500).json({ error: error.message });
+    console.error('Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`Swiss Ephemeris API running on port ${port}`);
 });
