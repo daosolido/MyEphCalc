@@ -1,5 +1,11 @@
 {
   "name": "my-eph-calc",
   "version": "1.0.0",
-  "type": "module"
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
 }
