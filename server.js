@@ -57,6 +57,43 @@ function getDayOfYear(year, month, day) {
   return dayOfYear;
 }
 
+// ============================================
+// НОВЫЙ ЭНДПОИНТ ДЛЯ РАХУ И КЕТУ
+// ============================================
+app.post('/api/node', (req, res) => {
+  try {
+    const { year, month, day, hour, minute, second, type } = req.body;
+    
+    console.log('Node endpoint - type:', type);
+    
+    const hourDecimal = (hour || 12) + (minute || 0) / 60 + (second || 0) / 3600;
+    const jd = getJulianDay(year, month, day, hourDecimal);
+    const ayanamsha = getAyanamsha(jd);
+    const rahuTropical = getRahu(jd);
+    
+    let rahuSidereal = rahuTropical - ayanamsha;
+    rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
+    rahuSidereal = Math.round(rahuSidereal * 1000) / 1000;
+    
+    if (type === 'rahu') {
+      return res.json({ value: rahuSidereal });
+    } else if (type === 'ketu') {
+      let ketu = rahuSidereal + 180;
+      ketu = ((ketu % 360) + 360) % 360;
+      ketu = Math.round(ketu * 1000) / 1000;
+      return res.json({ value: ketu });
+    }
+    
+    return res.json({ error: 'Invalid type. Use "rahu" or "ketu"' });
+  } catch (e) {
+    console.error('Node endpoint error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================
+// ОСНОВНОЙ ЭНДПОИНТ ДЛЯ ПЛАНЕТ
+// ============================================
 app.post('/api/planet', (req, res) => {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
@@ -71,32 +108,23 @@ app.post('/api/planet', (req, res) => {
     const jd = getJulianDay(year, month, day, hourDecimal);
     const ayanamsha = getAyanamsha(jd);
     
-    console.log('=== REQUEST ===');
-    console.log('planetId:', planetId);
-    console.log('ayanamsha:', ayanamsha);
-    console.log('jd:', jd);
-
     // Раху (planetId = 10)
     if (planetId === 10) {
       const rahuTropical = getRahu(jd);
-      console.log('rahuTropical:', rahuTropical);
       let rahuSidereal = rahuTropical - ayanamsha;
       rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
       rahuSidereal = Math.round(rahuSidereal * 1000) / 1000;
-      console.log('rahuSidereal result:', rahuSidereal);
       return res.json({ value: rahuSidereal, planet: 'Rahu' });
     }
     
     // Кету (planetId = 11)
     if (planetId === 11) {
       const rahuTropical = getRahu(jd);
-      console.log('rahuTropical:', rahuTropical);
       let rahuSidereal = rahuTropical - ayanamsha;
       rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
       let ketuSidereal = rahuSidereal + 180;
       ketuSidereal = ((ketuSidereal % 360) + 360) % 360;
       ketuSidereal = Math.round(ketuSidereal * 1000) / 1000;
-      console.log('ketuSidereal result:', ketuSidereal);
       return res.json({ value: ketuSidereal, planet: 'Ketu' });
     }
     
