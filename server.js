@@ -126,7 +126,7 @@ app.post('/api/planet', (req, res) => {
       let rahuSidereal = rahuTropical - ayanamsha;
       rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
       rahuSidereal = Math.round(rahuSidereal * 1000) / 1000;
-      return res.json({ value: rahuSidereal });
+      return res.json({ value: rahuSidereal, ayanamsha: ayanamsha });
     }
     if (planetId === 11) {
       const rahuTropical = getRahu(jd);
@@ -135,7 +135,7 @@ app.post('/api/planet', (req, res) => {
       let ketuSidereal = rahuSidereal + 180;
       ketuSidereal = ((ketuSidereal % 360) + 360) % 360;
       ketuSidereal = Math.round(ketuSidereal * 1000) / 1000;
-      return res.json({ value: ketuSidereal });
+      return res.json({ value: ketuSidereal, ayanamsha: ayanamsha });
     }
 
     // Луна (специальная обработка)
@@ -144,7 +144,7 @@ app.post('/api/planet', (req, res) => {
       let siderealLong = tropicalLong - ayanamsha;
       siderealLong = ((siderealLong % 360) + 360) % 360;
       siderealLong = Math.round(siderealLong * 1000) / 1000;
-      return res.json({ value: siderealLong });
+        return res.json({ value: siderealLong, ayanamsha: ayanamsha });
     }
     
     // Меркурий (специальная обработка)
@@ -153,7 +153,7 @@ app.post('/api/planet', (req, res) => {
       let siderealLong = tropicalLong - ayanamsha;
       siderealLong = ((siderealLong % 360) + 360) % 360;
       siderealLong = Math.round(siderealLong * 1000) / 1000;
-      return res.json({ value: siderealLong });
+        return res.json({ value: siderealLong, ayanamsha: ayanamsha });
     }
 
     // Остальные планеты (0,3-9)
@@ -162,7 +162,7 @@ app.post('/api/planet', (req, res) => {
       let siderealLong = tropicalLong - ayanamsha;
       siderealLong = ((siderealLong % 360) + 360) % 360;
       siderealLong = Math.round(siderealLong * 1000) / 1000;
-      return res.json({ value: siderealLong });
+        return res.json({ value: siderealLong, ayanamsha: ayanamsha });
     }
 
     return res.status(400).json({ error: 'Invalid planetId' });
