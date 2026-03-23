@@ -1,5 +1,6 @@
-const express = require('express');
-const { load, Constants } = require('@fusionstrings/swiss-eph');
+import express from 'express';
+import { Constants, load } from '@fusionstrings/swiss-eph';
+
 const app = express();
 const port = process.env.PORT || 3000;
 
