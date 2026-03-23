@@ -1,14 +1,14 @@
 {
   "name": "my-eph-calc",
   "version": "1.0.0",
-  "description": "High Precision Astrology API",
+  "description": "Swiss Ephemeris API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "astronomia": "^4.0.0"
+    "@fusionstrings/swiss-eph": "0.1.13"
   },
   "engines": {
     "node": "18.x"
