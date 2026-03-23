@@ -1,7 +1,7 @@
 {
   "name": "my-eph-calc",
   "version": "1.0.0",
-  "description": "High Precision Astrology API (astronomia)",
+  "description": "High Precision Astrology API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
