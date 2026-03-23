@@ -2,19 +2,12 @@ const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
 
-let astronomia;
-try {
-  astronomia = require('astronomia');
-  console.log('astronomia loaded, planetposition keys:', Object.keys(astronomia.planetposition));
-} catch (e) {
-  console.error('Failed to load astronomia:', e);
-  process.exit(1);
-}
-
-const { vsop87, julian, planetposition, moonposition } = astronomia;
+// Импорты из astronomia
+const { vsop87, julian, planetposition, moonposition } = require('astronomia');
 
 app.use(express.json());
 
+// CORS
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -27,42 +20,28 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Astronomia API ready' });
 });
 
-function getPlanetLongitude(jd, planetId) {
-  console.log(`getPlanetLongitude called with planetId=${planetId}, jd=${jd}`);
-  const planets = {
-    0: planetposition.sun,
-    2: planetposition.mercury,
-    3: planetposition.venus,
-    4: planetposition.mars,
-    5: planetposition.jupiter,
-    6: planetposition.saturn,
-    7: planetposition.uranus,
-    8: planetposition.neptune,
-    9: planetposition.pluto
-  };
+// Создаём объекты планет один раз при старте
+const planets = {
+  0: new planetposition.Planet(vsop87.sun),
+  2: new planetposition.Planet(vsop87.mercury),
+  3: new planetposition.Planet(vsop87.venus),
+  4: new planetposition.Planet(vsop87.mars),
+  5: new planetposition.Planet(vsop87.jupiter),
+  6: new planetposition.Planet(vsop87.saturn),
+  7: new planetposition.Planet(vsop87.uranus),
+  8: new planetposition.Planet(vsop87.neptune),
+  9: new planetposition.Planet(vsop87.pluto)
+};
 
+function getPlanetLongitude(jd, planetId) {
   if (planetId === 1) {
-    try {
-      const moon = moonposition.position(jd);
-      console.log(`Moon position computed: ${moon.longitude}`);
-      return moon.longitude;
-    } catch (err) {
-      console.error('Error computing moon position:', err);
-      return null;
-    }
-  } else if (planets[planetId]) {
-    try {
-      const pos = vsop87.apparentPosition(jd, planets[planetId]);
-      console.log(`Planet ${planetId} position: ${pos.longitude}`);
-      return pos.longitude;
-    } catch (err) {
-      console.error(`Error computing planet ${planetId} position:`, err);
-      return null;
-    }
-  } else {
-    console.warn(`No planet definition for planetId ${planetId}`);
-    return null;
+    const moon = moonposition.position(jd);
+    return moon.longitude;
   }
+  const planet = planets[planetId];
+  if (!planet) return null;
+  const pos = vsop87.apparentPosition(jd, planet);
+  return pos.longitude;
 }
 
 function getAyanamsha(jd) {
@@ -88,8 +67,6 @@ app.post('/api/planet', (req, res) => {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
 
-    console.log(`Received request: year=${year}, month=${month}, day=${day}, hour=${hour}, minute=${minute}, second=${second}, planetId=${planetId}`);
-
     if (!year || !month || !day || planetId === undefined) {
       return res.status(400).json({ error: 'Missing parameters' });
     }
@@ -100,8 +77,8 @@ app.post('/api/planet', (req, res) => {
 
     const jd = toJulianDay(year, month, day, h, m, s);
     const ayanamsha = getAyanamsha(jd);
-    console.log(`JD=${jd}, Ayanamsha=${ayanamsha}`);
 
+    // Раху и Кету
     if (planetId === 10) {
       const rahuTropical = getRahu(jd);
       let rahuSidereal = rahuTropical - ayanamsha;
@@ -119,10 +96,10 @@ app.post('/api/planet', (req, res) => {
       return res.json({ value: ketuSidereal, jd });
     }
 
+    // Планеты 0-9
     if (planetId >= 0 && planetId <= 9) {
       const tropicalLong = getPlanetLongitude(jd, planetId);
       if (tropicalLong === null) {
-        console.error(`getPlanetLongitude returned null for planetId ${planetId}`);
         return res.status(400).json({ error: 'Invalid planetId' });
       }
       let siderealLong = tropicalLong - ayanamsha;
