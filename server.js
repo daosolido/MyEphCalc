@@ -1,10 +1,10 @@
 const express = require('express');
+const swisseph = require('swisseph');
 const app = express();
 const port = process.env.PORT || 3000;
-const swisseph = require('swisseph');
 
-// Инициализация Swiss Ephemeris
-swisseph.swe_set_ephe_path('./ephe'); // путь к эфемеридным файлам
+// Путь к эфемеридным файлам (папка ephe в корне)
+swisseph.swe_set_ephe_path('./ephe');
 
 app.use(express.json());
 
@@ -18,19 +18,25 @@ app.use((req, res, next) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Swiss Ephemeris API' });
+  res.json({ status: 'ok', message: 'Swiss Ephemeris API ready' });
 });
 
-// Преобразование даты в юлианскую
-function getJulianDay(year, month, day, hourDecimal) {
-  const a = Math.floor((14 - month) / 12);
-  const y = year + 4800 - a;
-  const m = month + 12 * a - 3;
-  let jd = day + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
-  return jd + hourDecimal / 24;
+// Юлианская дата
+function toJulianDay(year, month, day, hour, min, sec) {
+  let y = year;
+  let m = month;
+  if (m <= 2) {
+    y -= 1;
+    m += 12;
+  }
+  const a = Math.floor(y / 100);
+  const b = 2 - a + Math.floor(a / 4);
+  const jd = Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + day + b - 1524.5;
+  const ut = hour + min / 60 + sec / 3600;
+  return jd + ut / 24;
 }
 
-// Айанамша Lahiri через Swiss Ephemeris
+// Айанамша Lahiri
 function getAyanamsha(jd) {
   return new Promise((resolve, reject) => {
     swisseph.swe_get_ayanamsa_ut(jd, (err, ayan) => {
@@ -40,34 +46,29 @@ function getAyanamsha(jd) {
   });
 }
 
-// Расчёт планеты через Swiss Ephemeris
-function getPlanet(jd, planetId, ayanamsha) {
+// Расчёт планеты или узла
+function getPlanet(jd, planetId, ayanamsha, flags) {
   return new Promise((resolve, reject) => {
-    const iflag = swisseph.SEFLG_SIDEREAL | swisseph.SEFLG_SPEED;
-    swisseph.swe_calc_ut(jd, planetId, iflag, (err, body) => {
-      if (err) reject(err);
-      else {
-        let longitude = body.longitude - ayanamsha;
-        longitude = ((longitude % 360) + 360) % 360;
-        resolve(Math.round(longitude * 1000) / 1000);
-      }
-    });
-  });
-}
-
-// Раху и Кету через Swiss Ephemeris
-function getNodes(jd, ayanamsha) {
-  return new Promise((resolve, reject) => {
-    swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, swisseph.SEFLG_SIDEREAL, (err, nodes) => {
-      if (err) reject(err);
-      else {
-        let rahu = nodes.nasc_long - ayanamsha;
-        let ketu = nodes.ndsc_long - ayanamsha;
-        rahu = ((rahu % 360) + 360) % 360;
-        ketu = ((ketu % 360) + 360) % 360;
-        resolve({ rahu: Math.round(rahu * 1000) / 1000, ketu: Math.round(ketu * 1000) / 1000 });
-      }
-    });
+    if (planetId === 10 || planetId === 11) { // Раху / Кету
+      swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags, (err, nodes) => {
+        if (err) reject(err);
+        else {
+          let lon = (planetId === 10) ? nodes.nasc_long : nodes.ndsc_long;
+          lon -= ayanamsha;
+          lon = ((lon % 360) + 360) % 360;
+          resolve(Math.round(lon * 1000) / 1000);
+        }
+      });
+    } else { // планеты 0-9
+      swisseph.swe_calc_ut(jd, planetId, flags, (err, body) => {
+        if (err) reject(err);
+        else {
+          let lon = body.longitude - ayanamsha;
+          lon = ((lon % 360) + 360) % 360;
+          resolve(Math.round(lon * 1000) / 1000);
+        }
+      });
+    }
   });
 }
 
@@ -79,31 +80,22 @@ app.post('/api/planet', async (req, res) => {
       return res.status(400).json({ error: 'Missing parameters' });
     }
 
-    const hourDecimal = (hour || 12) + (minute || 0) / 60 + (second || 0) / 3600;
-    const jd = getJulianDay(year, month, day, hourDecimal);
+    const h = (hour !== undefined) ? hour : 12;
+    const m = (minute !== undefined) ? minute : 0;
+    const s = (second !== undefined) ? second : 0;
+
+    const jd = toJulianDay(year, month, day, h, m, s);
     const ayanamsha = await getAyanamsha(jd);
+    const flags = swisseph.SEFLG_SPEED; // можно добавить SEFLG_SIDEREAL, но мы вычитаем сами
 
-    // Раху и Кету (10 и 11)
-    if (planetId === 10 || planetId === 11) {
-      const nodes = await getNodes(jd, ayanamsha);
-      if (planetId === 10) return res.json({ value: nodes.rahu });
-      if (planetId === 11) return res.json({ value: nodes.ketu });
-    }
-
-    // Обычные планеты (0-9)
-    if (planetId >= 0 && planetId <= 9) {
-      const longitude = await getPlanet(jd, planetId, ayanamsha);
-      return res.json({ value: longitude });
-    }
-
-    return res.status(400).json({ error: 'Invalid planetId' });
-
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: error.message });
+    const value = await getPlanet(jd, planetId, ayanamsha, flags);
+    res.json({ value });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.listen(port, () => {
-  console.log(`Swiss Ephemeris API running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });
