@@ -2,12 +2,19 @@ const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Импорты из astronomia
-const { vsop87, julian, planetposition, moonposition } = require('astronomia');
+let astronomia;
+try {
+  astronomia = require('astronomia');
+  console.log('astronomia loaded, planetposition keys:', Object.keys(astronomia.planetposition));
+} catch (e) {
+  console.error('Failed to load astronomia:', e);
+  process.exit(1);
+}
+
+const { vsop87, julian, planetposition, moonposition } = astronomia;
 
 app.use(express.json());
 
-// CORS
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -20,8 +27,8 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Astronomia API ready' });
 });
 
-// Получение геоцентрической тропической долготы
 function getPlanetLongitude(jd, planetId) {
+  console.log(`getPlanetLongitude called with planetId=${planetId}, jd=${jd}`);
   const planets = {
     0: planetposition.sun,
     2: planetposition.mercury,
@@ -35,17 +42,29 @@ function getPlanetLongitude(jd, planetId) {
   };
 
   if (planetId === 1) {
-    const moon = moonposition.position(jd);
-    return moon.longitude;
+    try {
+      const moon = moonposition.position(jd);
+      console.log(`Moon position computed: ${moon.longitude}`);
+      return moon.longitude;
+    } catch (err) {
+      console.error('Error computing moon position:', err);
+      return null;
+    }
   } else if (planets[planetId]) {
-    const pos = vsop87.apparentPosition(jd, planets[planetId]);
-    return pos.longitude;
+    try {
+      const pos = vsop87.apparentPosition(jd, planets[planetId]);
+      console.log(`Planet ${planetId} position: ${pos.longitude}`);
+      return pos.longitude;
+    } catch (err) {
+      console.error(`Error computing planet ${planetId} position:`, err);
+      return null;
+    }
   } else {
+    console.warn(`No planet definition for planetId ${planetId}`);
     return null;
   }
 }
 
-// Айанамша Lahiri
 function getAyanamsha(jd) {
   const t = (jd - 2451545.0) / 36525.0;
   const precession = (5025.64 * t + 1.11 * t * t + 0.000001 * t * t * t) / 3600;
@@ -53,7 +72,6 @@ function getAyanamsha(jd) {
   return ay - precession;
 }
 
-// Раху (средний лунный узел)
 function getRahu(jd) {
   const T = (jd - 2451545.0) / 36525.0;
   let rahu = 125.044522 - 1934.136261 * T + 0.0020708 * T * T + T * T * T / 450000;
@@ -61,7 +79,6 @@ function getRahu(jd) {
   return rahu;
 }
 
-// Юлианская дата через astronomia
 function toJulianDay(year, month, day, hour, minute, second) {
   const ut = hour + minute/60 + second/3600;
   return julian.CalendarGregorianToJD(year, month, day, ut);
@@ -70,6 +87,8 @@ function toJulianDay(year, month, day, hour, minute, second) {
 app.post('/api/planet', (req, res) => {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
+
+    console.log(`Received request: year=${year}, month=${month}, day=${day}, hour=${hour}, minute=${minute}, second=${second}, planetId=${planetId}`);
 
     if (!year || !month || !day || planetId === undefined) {
       return res.status(400).json({ error: 'Missing parameters' });
@@ -81,8 +100,8 @@ app.post('/api/planet', (req, res) => {
 
     const jd = toJulianDay(year, month, day, h, m, s);
     const ayanamsha = getAyanamsha(jd);
+    console.log(`JD=${jd}, Ayanamsha=${ayanamsha}`);
 
-    // Раху и Кету
     if (planetId === 10) {
       const rahuTropical = getRahu(jd);
       let rahuSidereal = rahuTropical - ayanamsha;
@@ -100,10 +119,10 @@ app.post('/api/planet', (req, res) => {
       return res.json({ value: ketuSidereal, jd });
     }
 
-    // Планеты 0-9
     if (planetId >= 0 && planetId <= 9) {
       const tropicalLong = getPlanetLongitude(jd, planetId);
       if (tropicalLong === null) {
+        console.error(`getPlanetLongitude returned null for planetId ${planetId}`);
         return res.status(400).json({ error: 'Invalid planetId' });
       }
       let siderealLong = tropicalLong - ayanamsha;
@@ -114,7 +133,7 @@ app.post('/api/planet', (req, res) => {
 
     return res.status(400).json({ error: 'Invalid planetId' });
   } catch (err) {
-    console.error(err);
+    console.error('Unhandled error:', err);
     res.status(500).json({ error: err.message });
   }
 });
