@@ -20,10 +20,9 @@ app.get('/', (req, res) => {
 
 // Устанавливаем айанамшу Lahiri
 swisseph.swe_set_sid_mode(swisseph.SE_SIDM_LAHIRI, 0, 0);
-// Используем встроенные эфемериды (не требуют файлов)
+// Используем встроенные эфемериды
 swisseph.swe_set_ephe_path('');
 
-// Преобразование даты в юлианскую (синхронная функция)
 function toJulianDay(year, month, day, hour, minute, second) {
   const ut = hour + minute/60 + second/3600;
   return swisseph.swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL);
@@ -45,21 +44,20 @@ app.post('/api/planet', (req, res) => {
     const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
 
     // Раху и Кету
-    if (planetId === 10) {
-      const node = swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
-      let rahu = node.xnasc_long - ayanamsha;
+    if (planetId === 10 || planetId === 11) {
+      const nodes = swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
+      let rahu = nodes.xnasc_long - ayanamsha;
       rahu = ((rahu % 360) + 360) % 360;
       rahu = Math.round(rahu * 1000) / 1000;
-      return res.json({ value: rahu, ayanamsha });
-    }
-    if (planetId === 11) {
-      const node = swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
-      let rahu = node.xnasc_long - ayanamsha;
-      rahu = ((rahu % 360) + 360) % 360;
-      let ketu = rahu + 180;
-      ketu = ((ketu % 360) + 360) % 360;
-      ketu = Math.round(ketu * 1000) / 1000;
-      return res.json({ value: ketu, ayanamsha });
+      
+      if (planetId === 10) {
+        return res.json({ value: rahu, ayanamsha });
+      } else {
+        let ketu = rahu + 180;
+        ketu = ((ketu % 360) + 360) % 360;
+        ketu = Math.round(ketu * 1000) / 1000;
+        return res.json({ value: ketu, ayanamsha });
+      }
     }
 
     // Планеты 0-9
