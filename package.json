@@ -1,13 +1,14 @@
 {
   "name": "my-eph-calc",
   "version": "1.0.0",
-  "description": "VSOP87 API",
+  "description": "Swiss Ephemeris JS API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "swisseph-js": "^1.0.0"
   },
   "engines": {
     "node": "18.x"
