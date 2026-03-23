@@ -1,11 +1,11 @@
 const express = require('express');
 const swisseph = require('swisseph');
+const { promisify } = require('util');
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// CORS
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -18,15 +18,19 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Swiss Ephemeris API ready' });
 });
 
-// Устанавливаем айанамшу Lahiri (явно)
 swisseph.swe_set_sid_mode(swisseph.SE_SIDM_LAHIRI, 0, 0);
+
+const swe_julday = promisify(swisseph.swe_julday);
+const swe_calc_ut = promisify(swisseph.swe_calc_ut);
+const swe_nod_aps_ut = promisify(swisseph.swe_nod_aps_ut);
+const swe_get_ayanamsa_ut = promisify(swisseph.swe_get_ayanamsa_ut);
 
 function toJulianDay(year, month, day, hour, minute, second) {
   const ut = hour + minute/60 + second/3600;
-  return swisseph.swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL);
+  return swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL);
 }
 
-app.post('/api/planet', (req, res) => {
+app.post('/api/planet', async (req, res) => {
   try {
     const { year, month, day, hour, minute, second, planetId } = req.body;
     if (!year || !month || !day || planetId === undefined) {
@@ -37,22 +41,19 @@ app.post('/api/planet', (req, res) => {
     const m = (minute !== undefined && minute !== null) ? minute : 0;
     const s = (second !== undefined && second !== null) ? second : 0;
 
-    const jd = toJulianDay(year, month, day, h, m, s);
-    
-    // Получаем айанамшу (Lahiri)
-    const ayanamsha = swisseph.swe_get_ayanamsa_ut(jd);
-    
-    // Флаги: скорость + встроенные эфемериды Moshier (не требуют файлов)
+    const jd = await toJulianDay(year, month, day, h, m, s);
+    const ayanamsha = await swe_get_ayanamsa_ut(jd);
     const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_MOSEPH;
 
-    if (planetId === 10) { // Раху
-      const node = swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
+    // Раху и Кету
+    if (planetId === 10) {
+      const node = await swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
       let rahu = node.xnasc_long - ayanamsha;
       rahu = ((rahu % 360) + 360) % 360;
       return res.json({ value: Math.round(rahu * 1000) / 1000, ayanamsha });
     }
-    if (planetId === 11) { // Кету
-      const node = swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
+    if (planetId === 11) {
+      const node = await swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
       let rahu = node.xnasc_long - ayanamsha;
       rahu = ((rahu % 360) + 360) % 360;
       let ketu = rahu + 180;
@@ -60,8 +61,8 @@ app.post('/api/planet', (req, res) => {
       return res.json({ value: Math.round(ketu * 1000) / 1000, ayanamsha });
     }
 
-    // Планеты 0-9
-    const body = swisseph.swe_calc_ut(jd, planetId, flags);
+    // Обычные планеты
+    const body = await swe_calc_ut(jd, planetId, flags);
     let tropical = body.longitude;
     let sidereal = tropical - ayanamsha;
     sidereal = ((sidereal % 360) + 360) % 360;
