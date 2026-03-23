@@ -77,10 +77,11 @@ app.post('/api/planet', (req, res) => {
     const s = (second !== undefined && second !== null) ? second : 0;
 
     const hourDecimal = h + m/60 + s/3600;
-    const dayOfYear = getDayOfYear(year, month, day);
-    const daysSince2000 = (year - 2000) * 365.25 + dayOfYear + hourDecimal / 24;
     const jd = toJulianDay(year, month, day, h, m, s);
+    const daysSince2000 = jd - 2451545.0;   // <-- исправлено
     const ayanamsha = getAyanamsha(jd);
+
+
 
     if (planetId === 10) {
       const rahuTropical = getRahuLongitude(jd);
