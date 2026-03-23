@@ -1,14 +1,14 @@
 {
   "name": "my-eph-calc",
   "version": "1.0.0",
-  "description": "Swiss Ephemeris API via @nrweb/astro-calc",
+  "description": "Swiss Ephemeris Node.js binding",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "@nrweb/astro-calc": "^1.0.0"
+    "swisseph": "^1.0.0"
   },
   "engines": {
     "node": "18.x"
