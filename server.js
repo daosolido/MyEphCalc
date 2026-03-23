@@ -1,9 +1,8 @@
 const express = require('express');
+const { vsop87, julian, planetposition, moonposition } = require('astronomia');
+
 const app = express();
 const port = process.env.PORT || 3000;
-
-// Импортируем модули astronomia
-const { vsop87, julian, planetposition, moonposition } = require('astronomia');
 
 app.use(express.json());
 
@@ -20,11 +19,11 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Astronomia API ready' });
 });
 
-// Функция для получения геоцентрической тропической долготы планеты
+// Тропическая долгота планеты (геоцентрическая)
 function getPlanetLongitude(jd, planetId) {
-  const planetMap = {
+  // Карта planetId -> функция для получения позиции
+  const planets = {
     0: planetposition.sun,
-    1: moonposition.position, // Луна отдельно
     2: planetposition.mercury,
     3: planetposition.venus,
     4: planetposition.mars,
@@ -36,13 +35,14 @@ function getPlanetLongitude(jd, planetId) {
   };
 
   if (planetId === 1) {
+    // Луна
     const moon = moonposition.position(jd);
     return moon.longitude;
-  } else {
-    const planet = planetMap[planetId];
-    if (!planet) return null;
-    const pos = vsop87.apparentPosition(jd, planet);
+  } else if (planets[planetId]) {
+    const pos = vsop87.apparentPosition(jd, planets[planetId]);
     return pos.longitude;
+  } else {
+    return null;
   }
 }
 
@@ -54,7 +54,7 @@ function getAyanamsha(jd) {
   return ay - precession;
 }
 
-// Раху (средний лунный узел) — формула из Swiss Ephemeris
+// Раху (средний лунный узел)
 function getRahu(jd) {
   const T = (jd - 2451545.0) / 36525.0;
   let rahu = 125.044522 - 1934.136261 * T + 0.0020708 * T * T + T * T * T / 450000;
@@ -62,19 +62,23 @@ function getRahu(jd) {
   return rahu;
 }
 
-// Юлианская дата через astronomia (корректно учитывает время)
+// Юлианская дата через astronomia
 function toJulianDay(year, month, day, hour, minute, second) {
   const ut = hour + minute / 60 + second / 3600;
   return julian.CalendarGregorianToJD(year, month, day, ut);
 }
 
-app.post('/api/planet', async (req, res) => {
+// Эндпоинт для получения позиции планеты
+app.post('/api/planet', (req, res) => {
   try {
-    const { year, month, day, hour, minute, second, planetId } = req.body;
+    let { year, month, day, hour, minute, second, planetId } = req.body;
+
+    // Проверка обязательных параметров
     if (!year || !month || !day || planetId === undefined) {
-      return res.status(400).json({ error: 'Missing parameters' });
+      return res.status(400).json({ error: 'Missing parameters: year, month, day, planetId' });
     }
 
+    // Нормализация времени (по умолчанию 12:00)
     const h = (hour !== undefined && hour !== null) ? hour : 12;
     const m = (minute !== undefined && minute !== null) ? minute : 0;
     const s = (second !== undefined && second !== null) ? second : 0;
@@ -82,25 +86,25 @@ app.post('/api/planet', async (req, res) => {
     const jd = toJulianDay(year, month, day, h, m, s);
     const ayanamsha = getAyanamsha(jd);
 
-    // Раху и Кету
+    // Раху (10) и Кету (11)
     if (planetId === 10) {
-      const rahuTropical = getRahu(jd);
-      let rahuSidereal = rahuTropical - ayanamsha;
-      rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
-      rahuSidereal = Math.round(rahuSidereal * 1000) / 1000;
-      return res.json({ value: rahuSidereal });
+      const rahuTrop = getRahu(jd);
+      let rahuSid = rahuTrop - ayanamsha;
+      rahuSid = ((rahuSid % 360) + 360) % 360;
+      rahuSid = Math.round(rahuSid * 1000) / 1000;
+      return res.json({ value: rahuSid });
     }
     if (planetId === 11) {
-      const rahuTropical = getRahu(jd);
-      let rahuSidereal = rahuTropical - ayanamsha;
-      rahuSidereal = ((rahuSidereal % 360) + 360) % 360;
-      let ketuSidereal = rahuSidereal + 180;
-      ketuSidereal = ((ketuSidereal % 360) + 360) % 360;
-      ketuSidereal = Math.round(ketuSidereal * 1000) / 1000;
-      return res.json({ value: ketuSidereal });
+      const rahuTrop = getRahu(jd);
+      let rahuSid = rahuTrop - ayanamsha;
+      rahuSid = ((rahuSid % 360) + 360) % 360;
+      let ketuSid = rahuSid + 180;
+      ketuSid = ((ketuSid % 360) + 360) % 360;
+      ketuSid = Math.round(ketuSid * 1000) / 1000;
+      return res.json({ value: ketuSid });
     }
 
-    // Планеты 0-9
+    // Планеты 0–9
     if (planetId >= 0 && planetId <= 9) {
       const tropicalLong = getPlanetLongitude(jd, planetId);
       if (tropicalLong === null) {
@@ -114,15 +118,15 @@ app.post('/api/planet', async (req, res) => {
 
     return res.status(400).json({ error: 'Invalid planetId' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('Error:', err);
+    return res.status(500).json({ error: err.message });
   }
 });
 
-// Дополнительный эндпоинт для проверки юлианской даты
+// Эндпоинт для проверки юлианской даты
 app.post('/api/jd', (req, res) => {
   try {
-    const { year, month, day, hour, minute, second } = req.body;
+    let { year, month, day, hour, minute, second } = req.body;
     const h = (hour !== undefined && hour !== null) ? hour : 12;
     const m = (minute !== undefined && minute !== null) ? minute : 0;
     const s = (second !== undefined && second !== null) ? second : 0;
@@ -134,5 +138,5 @@ app.post('/api/jd', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Astronomia API running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });
