@@ -105,7 +105,7 @@ app.post('/api/planet', (req, res) => {
     siderealLong = ((siderealLong % 360) + 360) % 360;
     siderealLong = Math.round(siderealLong * 1000) / 1000;
 
-    res.json({ value: siderealLong });
+    res.json({ value: siderealLong, jd: jd });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
