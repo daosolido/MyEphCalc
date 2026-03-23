@@ -18,35 +18,12 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Swiss Ephemeris API ready' });
 });
 
-// Путь к эфемеридным файлам (пустая строка = встроенный Moshier)
-swisseph.swe_set_ephe_path('');
-
-// Устанавливаем айанамшу Lahiri
+// Устанавливаем айанамшу Lahiri (явно)
 swisseph.swe_set_sid_mode(swisseph.SE_SIDM_LAHIRI, 0, 0);
 
-function toJulianDay(year, month, day, hour, minute, second, callback) {
+function toJulianDay(year, month, day, hour, minute, second) {
   const ut = hour + minute/60 + second/3600;
-  swisseph.swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL, callback);
-}
-
-function getPlanetLongitude(jd, planetId, callback) {
-  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH; // можно SEFLG_MOSEPH для встроенных данных
-  swisseph.swe_calc_ut(jd, planetId, flags, (err, body) => {
-    if (err) return callback(err);
-    callback(null, body.longitude);
-  });
-}
-
-function getRahu(jd, callback) {
-  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
-  swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags, (err, nodes) => {
-    if (err) return callback(err);
-    callback(null, nodes.xnasc_long);
-  });
-}
-
-function getAyanamsha(jd, callback) {
-  swisseph.swe_get_ayanamsa_ut(jd, callback);
+  return swisseph.swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL);
 }
 
 app.post('/api/planet', (req, res) => {
@@ -60,39 +37,37 @@ app.post('/api/planet', (req, res) => {
     const m = (minute !== undefined && minute !== null) ? minute : 0;
     const s = (second !== undefined && second !== null) ? second : 0;
 
-    toJulianDay(year, month, day, h, m, s, (err, jd) => {
-      if (err) return res.status(500).json({ error: err.toString() });
+    const jd = toJulianDay(year, month, day, h, m, s);
+    
+    // Получаем айанамшу (Lahiri)
+    const ayanamsha = swisseph.swe_get_ayanamsa_ut(jd);
+    
+    // Флаги: скорость + встроенные эфемериды Moshier (не требуют файлов)
+    const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_MOSEPH;
 
-      getAyanamsha(jd, (err, ayanamsha) => {
-        if (err) return res.status(500).json({ error: err.toString() });
+    if (planetId === 10) { // Раху
+      const node = swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
+      let rahu = node.xnasc_long - ayanamsha;
+      rahu = ((rahu % 360) + 360) % 360;
+      return res.json({ value: Math.round(rahu * 1000) / 1000, ayanamsha });
+    }
+    if (planetId === 11) { // Кету
+      const node = swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
+      let rahu = node.xnasc_long - ayanamsha;
+      rahu = ((rahu % 360) + 360) % 360;
+      let ketu = rahu + 180;
+      ketu = ((ketu % 360) + 360) % 360;
+      return res.json({ value: Math.round(ketu * 1000) / 1000, ayanamsha });
+    }
 
-        const handleResult = (longitude) => {
-          let sidereal = longitude - ayanamsha;
-          sidereal = ((sidereal % 360) + 360) % 360;
-          sidereal = Math.round(sidereal * 1000) / 1000;
-          res.json({ value: sidereal, ayanamsha });
-        };
+    // Планеты 0-9
+    const body = swisseph.swe_calc_ut(jd, planetId, flags);
+    let tropical = body.longitude;
+    let sidereal = tropical - ayanamsha;
+    sidereal = ((sidereal % 360) + 360) % 360;
+    sidereal = Math.round(sidereal * 1000) / 1000;
 
-        if (planetId === 10) {
-          getRahu(jd, (err, rahu) => {
-            if (err) return res.status(500).json({ error: err.toString() });
-            handleResult(rahu);
-          });
-        } else if (planetId === 11) {
-          getRahu(jd, (err, rahu) => {
-            if (err) return res.status(500).json({ error: err.toString() });
-            let ketu = rahu + 180;
-            ketu = ((ketu % 360) + 360) % 360;
-            handleResult(ketu);
-          });
-        } else {
-          getPlanetLongitude(jd, planetId, (err, longitude) => {
-            if (err) return res.status(500).json({ error: err.toString() });
-            handleResult(longitude);
-          });
-        }
-      });
-    });
+    res.json({ value: sidereal, ayanamsha });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
