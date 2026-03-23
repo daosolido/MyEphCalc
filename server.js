@@ -1,10 +1,7 @@
 const express = require('express');
-const swisseph = require('swisseph');
+const { load, Constants } = require('@fusionstrings/swiss-eph');
 const app = express();
 const port = process.env.PORT || 3000;
-
-// Путь к эфемеридным файлам (папка ephe в корне)
-swisseph.swe_set_ephe_path('./ephe');
 
 app.use(express.json());
 
@@ -17,85 +14,64 @@ app.use((req, res, next) => {
   next();
 });
 
+let eph = null;
+
+async function init() {
+  eph = await load();
+  console.log('Swiss Ephemeris loaded');
+}
+init().catch(err => console.error('Failed to load:', err));
+
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Swiss Ephemeris API ready' });
 });
 
-// Юлианская дата
 function toJulianDay(year, month, day, hour, min, sec) {
-  let y = year;
-  let m = month;
-  if (m <= 2) {
-    y -= 1;
-    m += 12;
-  }
+  let y = year, m = month;
+  if (m <= 2) { y--; m += 12; }
   const a = Math.floor(y / 100);
   const b = 2 - a + Math.floor(a / 4);
   const jd = Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + day + b - 1524.5;
-  const ut = hour + min / 60 + sec / 3600;
+  const ut = hour + min/60 + sec/3600;
   return jd + ut / 24;
-}
-
-// Айанамша Lahiri
-function getAyanamsha(jd) {
-  return new Promise((resolve, reject) => {
-    swisseph.swe_get_ayanamsa_ut(jd, (err, ayan) => {
-      if (err) reject(err);
-      else resolve(ayan);
-    });
-  });
-}
-
-// Расчёт планеты или узла
-function getPlanet(jd, planetId, ayanamsha, flags) {
-  return new Promise((resolve, reject) => {
-    if (planetId === 10 || planetId === 11) { // Раху / Кету
-      swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags, (err, nodes) => {
-        if (err) reject(err);
-        else {
-          let lon = (planetId === 10) ? nodes.nasc_long : nodes.ndsc_long;
-          lon -= ayanamsha;
-          lon = ((lon % 360) + 360) % 360;
-          resolve(Math.round(lon * 1000) / 1000);
-        }
-      });
-    } else { // планеты 0-9
-      swisseph.swe_calc_ut(jd, planetId, flags, (err, body) => {
-        if (err) reject(err);
-        else {
-          let lon = body.longitude - ayanamsha;
-          lon = ((lon % 360) + 360) % 360;
-          resolve(Math.round(lon * 1000) / 1000);
-        }
-      });
-    }
-  });
 }
 
 app.post('/api/planet', async (req, res) => {
   try {
+    if (!eph) return res.status(503).json({ error: 'Initializing...' });
     const { year, month, day, hour, minute, second, planetId } = req.body;
-
-    if (!year || !month || !day || planetId === undefined) {
+    if (!year || !month || !day || planetId === undefined)
       return res.status(400).json({ error: 'Missing parameters' });
-    }
 
-    const h = (hour !== undefined) ? hour : 12;
-    const m = (minute !== undefined) ? minute : 0;
-    const s = (second !== undefined) ? second : 0;
+    const h = hour !== undefined ? hour : 12;
+    const m = minute !== undefined ? minute : 0;
+    const s = second !== undefined ? second : 0;
 
     const jd = toJulianDay(year, month, day, h, m, s);
-    const ayanamsha = await getAyanamsha(jd);
-    const flags = swisseph.SEFLG_SPEED; // можно добавить SEFLG_SIDEREAL, но мы вычитаем сами
+    const ayanamsha = eph.swe_get_ayanamsa_ut(jd);
+    const flags = Constants.SEFLG_SPEED | Constants.SEFLG_SWIEPH;
 
-    const value = await getPlanet(jd, planetId, ayanamsha, flags);
-    res.json({ value });
+    let lon;
+    if (planetId === 10) { // Раху
+      const node = eph.swe_nod_aps_ut(jd, Constants.SE_TRUE_NODE, flags);
+      lon = node.xnasc_long;
+    } else if (planetId === 11) { // Кету
+      const node = eph.swe_nod_aps_ut(jd, Constants.SE_TRUE_NODE, flags);
+      lon = node.xndsc_long;
+    } else {
+      const planet = eph.swe_calc_ut(jd, planetId, flags);
+      lon = planet.longitude;
+    }
+
+    let sidereal = lon - ayanamsha;
+    sidereal = ((sidereal % 360) + 360) % 360;
+    sidereal = Math.round(sidereal * 1000) / 1000;
+
+    res.json({ value: sidereal });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+app.listen(port, () => console.log(`Server on port ${port}`));
