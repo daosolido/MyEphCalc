@@ -1,10 +1,11 @@
 const express = require('express');
-const { getAstrologicalPositions } = require('@nrweb/astro-calc');
+const swisseph = require('swisseph');
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// CORS
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -14,42 +15,84 @@ app.use((req, res, next) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'AstroCalc API ready' });
+  res.json({ status: 'ok', message: 'Swiss Ephemeris API ready' });
 });
 
-function planetIdToName(planetId) {
-  const names = ['Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'];
-  return names[planetId];
+// Путь к эфемеридным файлам (пустая строка = встроенный Moshier)
+swisseph.swe_set_ephe_path('');
+
+// Устанавливаем айанамшу Lahiri
+swisseph.swe_set_sid_mode(swisseph.SE_SIDM_LAHIRI, 0, 0);
+
+function toJulianDay(year, month, day, hour, minute, second, callback) {
+  const ut = hour + minute/60 + second/3600;
+  swisseph.swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL, callback);
+}
+
+function getPlanetLongitude(jd, planetId, callback) {
+  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH; // можно SEFLG_MOSEPH для встроенных данных
+  swisseph.swe_calc_ut(jd, planetId, flags, (err, body) => {
+    if (err) return callback(err);
+    callback(null, body.longitude);
+  });
+}
+
+function getRahu(jd, callback) {
+  const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
+  swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags, (err, nodes) => {
+    if (err) return callback(err);
+    callback(null, nodes.xnasc_long);
+  });
+}
+
+function getAyanamsha(jd, callback) {
+  swisseph.swe_get_ayanamsa_ut(jd, callback);
 }
 
 app.post('/api/planet', (req, res) => {
   try {
-    const { year, month, day, hour, minute, second, planetId, lat, lon, ayanamsha } = req.body;
+    const { year, month, day, hour, minute, second, planetId } = req.body;
     if (!year || !month || !day || planetId === undefined) {
       return res.status(400).json({ error: 'Missing parameters' });
     }
 
-    const date = new Date(Date.UTC(year, month-1, day, hour||12, minute||0, second||0));
-    const latitude = lat !== undefined ? lat : 55.7558;
-    const longitude = lon !== undefined ? lon : 37.6176;
+    const h = (hour !== undefined && hour !== null) ? hour : 12;
+    const m = (minute !== undefined && minute !== null) ? minute : 0;
+    const s = (second !== undefined && second !== null) ? second : 0;
 
-    const chart = getAstrologicalPositions(date, latitude, longitude);
-    const planetName = planetIdToName(planetId);
-    const planet = chart.positions.find(p => p.name === planetName);
+    toJulianDay(year, month, day, h, m, s, (err, jd) => {
+      if (err) return res.status(500).json({ error: err.toString() });
 
-    if (!planet) return res.status(400).json({ error: 'Planet not found' });
+      getAyanamsha(jd, (err, ayanamsha) => {
+        if (err) return res.status(500).json({ error: err.toString() });
 
-    let longitudeDeg = planet.degrees + (planet.minutes / 60) + (planet.seconds / 3600);
-    let result = longitudeDeg;
+        const handleResult = (longitude) => {
+          let sidereal = longitude - ayanamsha;
+          sidereal = ((sidereal % 360) + 360) % 360;
+          sidereal = Math.round(sidereal * 1000) / 1000;
+          res.json({ value: sidereal, ayanamsha });
+        };
 
-    // Если запрошена сидерическая долгота (ayanamsha = lahiri)
-    if (ayanamsha === 'lahiri') {
-      const ayanamshaVal = chart.ayanamsha; // библиотека возвращает айанамшу
-      result = (longitudeDeg - ayanamshaVal + 360) % 360;
-    }
-
-    result = Math.round(result * 1000) / 1000;
-    res.json({ value: result, planet: planetName });
+        if (planetId === 10) {
+          getRahu(jd, (err, rahu) => {
+            if (err) return res.status(500).json({ error: err.toString() });
+            handleResult(rahu);
+          });
+        } else if (planetId === 11) {
+          getRahu(jd, (err, rahu) => {
+            if (err) return res.status(500).json({ error: err.toString() });
+            let ketu = rahu + 180;
+            ketu = ((ketu % 360) + 360) % 360;
+            handleResult(ketu);
+          });
+        } else {
+          getPlanetLongitude(jd, planetId, (err, longitude) => {
+            if (err) return res.status(500).json({ error: err.toString() });
+            handleResult(longitude);
+          });
+        }
+      });
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -57,5 +100,5 @@ app.post('/api/planet', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`Swiss Ephemeris API running on port ${port}`);
 });
