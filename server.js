@@ -20,7 +20,6 @@ app.get('/', (req, res) => {
 
 // Устанавливаем айанамшу Lahiri
 swisseph.swe_set_sid_mode(swisseph.SE_SIDM_LAHIRI, 0, 0);
-// Используем встроенные эфемериды
 swisseph.swe_set_ephe_path('');
 
 function toJulianDay(year, month, day, hour, minute, second) {
@@ -43,24 +42,30 @@ app.post('/api/planet', (req, res) => {
     const ayanamsha = swisseph.swe_get_ayanamsa_ut(jd);
     const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
 
-    // Раху и Кету
-    if (planetId === 10 || planetId === 11) {
-      const nodes = swisseph.swe_nod_aps_ut(jd, swisseph.SE_TRUE_NODE, flags);
-      let rahu = nodes.xnasc_long - ayanamsha;
-      rahu = ((rahu % 360) + 360) % 360;
-      rahu = Math.round(rahu * 1000) / 1000;
-      
-      if (planetId === 10) {
-        return res.json({ value: rahu, ayanamsha });
-      } else {
-        let ketu = rahu + 180;
-        ketu = ((ketu % 360) + 360) % 360;
-        ketu = Math.round(ketu * 1000) / 1000;
-        return res.json({ value: ketu, ayanamsha });
-      }
+    // Раху и Кету — используем SE_TRUE_NODE (11) и SE_MEAN_NODE (10)
+    // По стандарту Swiss Ephemeris: 
+    // SE_MEAN_NODE = 10 (средний узел), SE_TRUE_NODE = 11 (истинный узел)
+    if (planetId === 10) { // Раху (средний узел)
+      const body = swisseph.swe_calc_ut(jd, swisseph.SE_MEAN_NODE, flags);
+      let tropical = body.longitude;
+      let sidereal = tropical - ayanamsha;
+      sidereal = ((sidereal % 360) + 360) % 360;
+      sidereal = Math.round(sidereal * 1000) / 1000;
+      return res.json({ value: sidereal, ayanamsha });
+    }
+    
+    if (planetId === 11) { // Кету (противоположность Раху)
+      const body = swisseph.swe_calc_ut(jd, swisseph.SE_MEAN_NODE, flags);
+      let tropical = body.longitude;
+      let sidereal = tropical - ayanamsha;
+      sidereal = ((sidereal % 360) + 360) % 360;
+      let ketu = sidereal + 180;
+      ketu = ((ketu % 360) + 360) % 360;
+      ketu = Math.round(ketu * 1000) / 1000;
+      return res.json({ value: ketu, ayanamsha });
     }
 
-    // Планеты 0-9
+    // Планеты 0-9 (Солнце, Луна, Меркурий, Венера, Марс, Юпитер, Сатурн, Уран, Нептун, Плутон)
     const body = swisseph.swe_calc_ut(jd, planetId, flags);
     let tropical = body.longitude;
     let sidereal = tropical - ayanamsha;
