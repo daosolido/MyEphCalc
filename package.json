@@ -1,15 +1,13 @@
 {
-  "name": "swiss-ephemeris-api",
+  "name": "my-eph-calc",
   "version": "1.0.0",
-  "type": "module",
-  "description": "Swiss Ephemeris API (WASM)",
+  "description": "High Precision Astrology API (VSOP87)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "@fusionstrings/swiss-eph": "0.2.1"
+    "express": "^4.18.2"
   },
   "engines": {
     "node": "18.x"
