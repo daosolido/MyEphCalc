@@ -49,55 +49,62 @@ function toJulianDay(year, month, day, hour, minute, second) {
   return swisseph.swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL);
 }
 
+// Основной эндпоинт для планет (работает с JD)
 app.post('/api/planet', (req, res) => {
   try {
-    const { year, month, day, hour, minute, second, planetId, ayanamsha } = req.body;
-    if (!year || !month || !day || planetId === undefined) {
-      return res.status(400).json({ error: 'Missing parameters' });
+    const { jd, planetId, ayanamsha } = req.body;
+    
+    if (!jd || planetId === undefined) {
+      return res.status(400).json({ error: 'Missing parameters: jd and planetId required' });
     }
-
+    
     // Если передана айанамша, устанавливаем её
-    if (ayanamsha) {
-      setAyanamshaMode(ayanamsha);
+    if (ayanamsha && ayanamsha !== 'sayana') {
+      const modes = {
+        'lahiri': swisseph.SE_SIDM_LAHIRI,
+        'raman': swisseph.SE_SIDM_RAMAN,
+        'krishnamurti': swisseph.SE_SIDM_KRISHNAMURTI,
+        'fagan_bradley': swisseph.SE_SIDM_FAGAN_BRADLEY,
+        'deluce': swisseph.SE_SIDM_DELUCE
+      };
+      const mode = modes[ayanamsha.toLowerCase()];
+      if (mode !== undefined) {
+        swisseph.swe_set_sid_mode(mode, 0, 0);
+      }
     }
-
-    const h = (hour !== undefined && hour !== null) ? hour : 12;
-    const m = (minute !== undefined && minute !== null) ? minute : 0;
-    const s = (second !== undefined && second !== null) ? second : 0;
-
-    const jd = toJulianDay(year, month, day, h, m, s);
+    
     const ayanamshaValue = swisseph.swe_get_ayanamsa_ut(jd);
     const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
-
+    
     // Раху и Кету
     if (planetId === 10) {
       const body = swisseph.swe_calc_ut(jd, swisseph.SE_MEAN_NODE, flags);
       let tropical = body.longitude;
-      let sidereal = tropical - ayanamshaValue;
+      let sidereal = (ayanamsha === 'sayana') ? tropical : tropical - ayanamshaValue;
       sidereal = ((sidereal % 360) + 360) % 360;
       sidereal = Math.round(sidereal * 1000) / 1000;
-      return res.json({ value: sidereal, ayanamsha: ayanamshaValue, ayanamshaMode: ayanamsha || 'lahiri' });
+      return res.json({ value: sidereal, ayanamsha: ayanamshaValue });
     }
     
     if (planetId === 11) {
       const body = swisseph.swe_calc_ut(jd, swisseph.SE_MEAN_NODE, flags);
       let tropical = body.longitude;
-      let sidereal = tropical - ayanamshaValue;
+      let sidereal = (ayanamsha === 'sayana') ? tropical : tropical - ayanamshaValue;
       sidereal = ((sidereal % 360) + 360) % 360;
       let ketu = sidereal + 180;
       ketu = ((ketu % 360) + 360) % 360;
       ketu = Math.round(ketu * 1000) / 1000;
-      return res.json({ value: ketu, ayanamsha: ayanamshaValue, ayanamshaMode: ayanamsha || 'lahiri' });
+      return res.json({ value: ketu, ayanamsha: ayanamshaValue });
     }
-
+    
     // Планеты 0-9
     const body = swisseph.swe_calc_ut(jd, planetId, flags);
     let tropical = body.longitude;
-    let sidereal = tropical - ayanamshaValue;
+    let sidereal = (ayanamsha === 'sayana') ? tropical : tropical - ayanamshaValue;
     sidereal = ((sidereal % 360) + 360) % 360;
     sidereal = Math.round(sidereal * 1000) / 1000;
-
-    res.json({ value: sidereal, ayanamsha: ayanamshaValue, ayanamshaMode: ayanamsha || 'lahiri' });
+    
+    res.json({ value: sidereal, ayanamsha: ayanamshaValue });
   } catch (err) {
     console.error('Error:', err);
     res.status(500).json({ error: err.message });
