@@ -145,6 +145,53 @@ app.post('/api/julian', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Эндпоинт для расчёта асцендента
+app.post('/api/ascendant', (req, res) => {
+  try {
+    const { jd, latitude, longitude, ayanamsha } = req.body;
+    
+    if (!jd || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ error: 'Missing parameters: jd, latitude, longitude required' });
+    }
+    
+    // Если передана айанамша, устанавливаем её для сидерического расчёта
+    if (ayanamsha && ayanamsha !== 'sayana') {
+      const modes = {
+        'lahiri': swisseph.SE_SIDM_LAHIRI,
+        'raman': swisseph.SE_SIDM_RAMAN,
+        'krishnamurti': swisseph.SE_SIDM_KRISHNAMURTI,
+        'fagan_bradley': swisseph.SE_SIDM_FAGAN_BRADLEY,
+        'deluce': swisseph.SE_SIDM_DELUCE
+      };
+      const mode = modes[ayanamsha.toLowerCase()];
+      if (mode !== undefined) {
+        swisseph.swe_set_sid_mode(mode, 0, 0);
+      }
+    }
+    
+    // Получаем айанамшу для сидерического зодиака
+    const ayanamshaValue = swisseph.swe_get_ayanamsa_ut(jd);
+    
+    // Расчёт домов (получаем асцендент)
+    const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
+    const houses = swisseph.swe_houses_ex(jd, flags, latitude, longitude, 'P');
+    
+    let ascendant = houses.ascendant;
+    
+    // Если запрошен сидерический асцендент, вычитаем айанамшу
+    if (ayanamsha !== 'sayana') {
+      ascendant = ascendant - ayanamshaValue;
+      ascendant = ((ascendant % 360) + 360) % 360;
+    }
+    
+    ascendant = Math.round(ascendant * 1000) / 1000;
+    
+    res.json({ value: ascendant, ayanamsha: ayanamshaValue });
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Swiss Ephemeris API running on port ${port}`);
