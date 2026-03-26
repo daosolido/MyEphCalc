@@ -18,7 +18,29 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Swiss Ephemeris API ready' });
 });
 
-// Устанавливаем айанамшу Lahiri
+// Функция для установки айанамши по названию
+function setAyanamshaMode(ayanamshaName) {
+  const modes = {
+    'lahiri': swisseph.SE_SIDM_LAHIRI,
+    'raman': swisseph.SE_SIDM_RAMAN,
+    'krishnamurti': swisseph.SE_SIDM_KRISHNAMURTI,
+    'fagan_bradley': swisseph.SE_SIDM_FAGAN_BRADLEY,
+    'deluce': swisseph.SE_SIDM_DELUCE,
+    'suryasiddhanta': swisseph.SE_SIDM_SURYASIDDHANTA,
+    'true_citra': swisseph.SE_SIDM_TRUE_CITRA,
+    'galactic_center': swisseph.SE_SIDM_GALCENT_0SAG,
+    'sayana': null  // тропический (без айанамши)
+  };
+  
+  const mode = modes[ayanamshaName?.toLowerCase()];
+  if (mode !== undefined && mode !== null) {
+    swisseph.swe_set_sid_mode(mode, 0, 0);
+    return true;
+  }
+  return false;
+}
+
+// Устанавливаем айанамшу по умолчанию (Lahiri)
 swisseph.swe_set_sid_mode(swisseph.SE_SIDM_LAHIRI, 0, 0);
 swisseph.swe_set_ephe_path('');
 
@@ -29,9 +51,14 @@ function toJulianDay(year, month, day, hour, minute, second) {
 
 app.post('/api/planet', (req, res) => {
   try {
-    const { year, month, day, hour, minute, second, planetId } = req.body;
+    const { year, month, day, hour, minute, second, planetId, ayanamsha } = req.body;
     if (!year || !month || !day || planetId === undefined) {
       return res.status(400).json({ error: 'Missing parameters' });
+    }
+
+    // Если передана айанамша, устанавливаем её
+    if (ayanamsha) {
+      setAyanamshaMode(ayanamsha);
     }
 
     const h = (hour !== undefined && hour !== null) ? hour : 12;
@@ -39,46 +66,60 @@ app.post('/api/planet', (req, res) => {
     const s = (second !== undefined && second !== null) ? second : 0;
 
     const jd = toJulianDay(year, month, day, h, m, s);
-    const ayanamsha = swisseph.swe_get_ayanamsa_ut(jd);
+    const ayanamshaValue = swisseph.swe_get_ayanamsa_ut(jd);
     const flags = swisseph.SEFLG_SPEED | swisseph.SEFLG_SWIEPH;
 
-    // Раху и Кету — используем SE_TRUE_NODE (11) и SE_MEAN_NODE (10)
-    // По стандарту Swiss Ephemeris: 
-    // SE_MEAN_NODE = 10 (средний узел), SE_TRUE_NODE = 11 (истинный узел)
-    if (planetId === 10) { // Раху (средний узел)
+    // Раху и Кету
+    if (planetId === 10) {
       const body = swisseph.swe_calc_ut(jd, swisseph.SE_MEAN_NODE, flags);
       let tropical = body.longitude;
-      let sidereal = tropical - ayanamsha;
+      let sidereal = tropical - ayanamshaValue;
       sidereal = ((sidereal % 360) + 360) % 360;
       sidereal = Math.round(sidereal * 1000) / 1000;
-      return res.json({ value: sidereal, ayanamsha });
+      return res.json({ value: sidereal, ayanamsha: ayanamshaValue, ayanamshaMode: ayanamsha || 'lahiri' });
     }
     
-    if (planetId === 11) { // Кету (противоположность Раху)
+    if (planetId === 11) {
       const body = swisseph.swe_calc_ut(jd, swisseph.SE_MEAN_NODE, flags);
       let tropical = body.longitude;
-      let sidereal = tropical - ayanamsha;
+      let sidereal = tropical - ayanamshaValue;
       sidereal = ((sidereal % 360) + 360) % 360;
       let ketu = sidereal + 180;
       ketu = ((ketu % 360) + 360) % 360;
       ketu = Math.round(ketu * 1000) / 1000;
-      return res.json({ value: ketu, ayanamsha });
+      return res.json({ value: ketu, ayanamsha: ayanamshaValue, ayanamshaMode: ayanamsha || 'lahiri' });
     }
 
-    // Планеты 0-9 (Солнце, Луна, Меркурий, Венера, Марс, Юпитер, Сатурн, Уран, Нептун, Плутон)
+    // Планеты 0-9
     const body = swisseph.swe_calc_ut(jd, planetId, flags);
     let tropical = body.longitude;
-    let sidereal = tropical - ayanamsha;
+    let sidereal = tropical - ayanamshaValue;
     sidereal = ((sidereal % 360) + 360) % 360;
     sidereal = Math.round(sidereal * 1000) / 1000;
 
-    res.json({ value: sidereal, ayanamsha });
+    res.json({ value: sidereal, ayanamsha: ayanamshaValue, ayanamshaMode: ayanamsha || 'lahiri' });
   } catch (err) {
     console.error('Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
-// Эндпоинт для получения юлианской даты
+
+// Эндпоинт для получения списка доступных айанамш
+app.get('/api/ayanamsha-list', (req, res) => {
+  const modes = [
+    { id: 'lahiri', name: 'Lahiri (Chitra Paksha)', description: 'Наиболее распространённая в ведической астрологии' },
+    { id: 'raman', name: 'Raman', description: 'Айанамша Рамана' },
+    { id: 'krishnamurti', name: 'Krishnamurti', description: 'Система Кришнамурти' },
+    { id: 'fagan_bradley', name: 'Fagan-Bradley', description: 'Западная сидерическая астрология' },
+    { id: 'deluce', name: 'De Luce', description: 'Айанамша Де Люс' },
+    { id: 'suryasiddhanta', name: 'Suryasiddhanta', description: 'По Сурья-сиддханте' },
+    { id: 'true_citra', name: 'True Citra', description: 'Истинная Читра' },
+    { id: 'galactic_center', name: 'Galactic Center', description: 'Центр Галактики в 0° Стрельца' },
+    { id: 'sayana', name: 'Sayana (Tropical)', description: 'Тропический зодиак (без айанамши)' }
+  ];
+  res.json(modes);
+});
+
 app.post('/api/julian', (req, res) => {
   try {
     const { year, month, day, hour, minute, second } = req.body;
@@ -90,9 +131,7 @@ app.post('/api/julian', (req, res) => {
     const m = (minute !== undefined && minute !== null) ? minute : 0;
     const s = (second !== undefined && second !== null) ? second : 0;
     
-    const ut = h + m/60 + s/3600;
-    const jd = swisseph.swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL);
-    
+    const jd = toJulianDay(year, month, day, h, m, s);
     res.json({ jd: jd });
   } catch (err) {
     console.error('Error:', err);
