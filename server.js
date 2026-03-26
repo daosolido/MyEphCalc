@@ -78,6 +78,27 @@ app.post('/api/planet', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Эндпоинт для получения юлианской даты
+app.post('/api/julian', (req, res) => {
+  try {
+    const { year, month, day, hour, minute, second } = req.body;
+    if (!year || !month || !day) {
+      return res.status(400).json({ error: 'Missing parameters' });
+    }
+    
+    const h = (hour !== undefined && hour !== null) ? hour : 12;
+    const m = (minute !== undefined && minute !== null) ? minute : 0;
+    const s = (second !== undefined && second !== null) ? second : 0;
+    
+    const ut = h + m/60 + s/3600;
+    const jd = swisseph.swe_julday(year, month, day, ut, swisseph.SE_GREG_CAL);
+    
+    res.json({ jd: jd });
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Swiss Ephemeris API running on port ${port}`);
